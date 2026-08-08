@@ -1,3 +1,6 @@
-add_executable(keikoupp_smoke smoke_test.cpp)
-target_link_libraries(keikoupp_smoke PRIVATE keikoupp::keikoupp)
-add_test(NAME smoke COMMAND keikoupp_smoke)
+find_package(Catch2 REQUIRED CONFIG)
+
+add_executable(test_config test_config.cpp)
+target_link_libraries(test_config PRIVATE keikoupp::keikoupp Catch2::Catch2 Catch2::Catch2WithMain)
+target_compile_features(test_config PUBLIC cxx_std_23)
+add_test(NAME test_config COMMAND test_config)
