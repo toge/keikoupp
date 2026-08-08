@@ -1,0 +1,2 @@
+add_executable(keikoupp_example example_main.cpp)
+target_link_libraries(keikoupp_example PRIVATE keikoupp::keikoupp)
