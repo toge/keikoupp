@@ -43,15 +43,19 @@ public:
     /**
      * @brief 固定サンプルモード用: サンプル番号を x 軸として値を 1 点投入する。
      * @param v 観測値。
+     * @note TimeMode::realtime では宣言されない (誤用はコンパイル時拒否)。
      */
-    void push(double v) { push_impl(static_cast<double>(n_++), v); }
+    void push(double v) requires (M == TimeMode::fixed) {
+        push_impl(static_cast<double>(n_++), v);
+    }
 
     /**
      * @brief 実時間モード用: 観測時刻と値を 1 点投入する。
      * @param t 観測時刻。
      * @param v 観測値。
+     * @note TimeMode::fixed では宣言されない (誤用はコンパイル時拒否)。
      */
-    void push(double t, double v) {
+    void push(double t, double v) requires (M == TimeMode::realtime) {
         ++n_;
         push_impl(t, v);
     }
@@ -94,13 +98,19 @@ public:
 
     /**
      * @brief 固定サンプルモード用: 次サンプルの予測値 = ema + slope * 1。
+     * @note TimeMode::realtime では宣言されない (誤用はコンパイル時拒否)。
      */
-    double next() const noexcept { return ema_ + slope(); }
+    double next() const noexcept requires (M == TimeMode::fixed) {
+        return ema_ + slope();
+    }
 
     /**
      * @brief 実時間モード用: 時刻 t における予測値 = ema + slope * (t - t_last)。
+     * @note TimeMode::fixed では宣言されない (誤用はコンパイル時拒否)。
      */
-    double forecast(double t) const noexcept { return ema_ + slope() * (t - last_t_); }
+    double forecast(double t) const noexcept requires (M == TimeMode::realtime) {
+        return ema_ + slope() * (t - last_t_);
+    }
 
     /**
      * @brief イベント検知コールバックを登録する。
