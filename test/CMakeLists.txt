@@ -1,11 +1,8 @@
 find_package(Catch2 REQUIRED CONFIG)
 
-add_executable(test_config test_config.cpp)
-target_link_libraries(test_config PRIVATE keikoupp::keikoupp Catch2::Catch2 Catch2::Catch2WithMain)
-target_compile_features(test_config PUBLIC cxx_std_23)
-add_test(NAME test_config COMMAND test_config)
+file(GLOB test_src test_*.cpp)
 
-add_executable(test_analyzer test_analyzer.cpp)
-target_link_libraries(test_analyzer PRIVATE keikoupp::keikoupp Catch2::Catch2 Catch2::Catch2WithMain)
-target_compile_features(test_analyzer PUBLIC cxx_std_23)
-add_test(NAME test_analyzer COMMAND test_analyzer)
+add_executable(all_test ${test_src})
+target_link_libraries(all_test PRIVATE keikoupp::keikoupp Catch2::Catch2 Catch2::Catch2WithMain)
+target_compile_features(all_test PUBLIC cxx_std_23)
+add_test(NAME all_test COMMAND all_test)
