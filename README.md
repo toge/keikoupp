@@ -69,6 +69,11 @@ int main() {
 }
 ```
 
+### セルフチェック
+
+`example/demo.cpp` は仕様の全ステージ（EMA・スパイク・シフト・トレンド・補間）を `check()` で検証する自己完結サンプル。
+`bash test.sh` の `example_demo` テストとして実行され、失敗時は非ゼロで終了する。
+
 ### イベントコールバック
 
 `on_event(F&& f)` で登録した関数に、検知のたびに `(event e, double ema, double v)` が渡される。

@@ -1,5 +1,4 @@
 #include <cstdio>
-#include <cstdint>
 #include <keikoupp/keikoupp.hpp>
 
 int main()
