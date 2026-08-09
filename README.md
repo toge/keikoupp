@@ -149,6 +149,22 @@ bash test.sh    # ctest --test-dir build --output-on-failure
 
 ライブラリ本体はヘッダオンリーで依存ゼロ。Catch2（vcpkg）はテストとサンプルのみに必要。
 
+### インストール / find_package
+
+```bash
+cmake --install build --prefix <prefix>   # ヘッダ + CMake パッケージをインストール
+```
+
+インストール後、利用側は `find_package(keikoupp CONFIG REQUIRED)` で `keikoupp::keikoupp` をリンクできる。
+
+### ベンチマーク
+
+`example/bench.cpp` は `push` 1 点あたりのコストを計測する（ctest には含めず手動実行）。
+
+```bash
+./build/example/bench [件数]
+```
+
 ## ライセンス
 
-未定。LICENSE ファイルはまだ整備されていない（公開時に方針を決めて追加する）。
+MIT License。詳細は `LICENSE` ファイルを参照。

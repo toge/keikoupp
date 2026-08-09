@@ -1,18 +1,100 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
-#include <deque>
 #include <functional>
 #include <limits>
+#include <set>
 #include <utility>
-#include <vector>
 
 #include "config.hpp"
 #include "event.hpp"
 
 namespace keikoupp {
+
+/// @brief 固定長リングバッファ。満杯時の push_back は最古要素を上書きする。
+template <typename T, std::size_t N>
+struct ring_buffer {
+    std::array<T, N> buf_{};
+    std::size_t head_ = 0;
+    std::size_t size_ = 0;
+
+    std::size_t size() const noexcept { return size_; }
+    bool empty() const noexcept { return size_ == 0; }
+
+    T& front() noexcept { return buf_[head_]; }
+    T& at(std::size_t i) noexcept { return buf_[(head_ + i) % N]; }
+    T const& at(std::size_t i) const noexcept { return buf_[(head_ + i) % N]; }
+
+    void push_back(T const& v) noexcept {
+        if (size_ == N) {
+            buf_[head_] = v;             // 最古要素を上書きして頭を進める
+            head_ = (head_ + 1) % N;
+        } else {
+            buf_[(head_ + size_) % N] = v;
+            ++size_;
+        }
+    }
+    void pop_front() noexcept {
+        --size_;
+        head_ = (head_ + 1) % N;
+    }
+};
+
+/// @brief スライディング窓の中央値 (上側メディアン、c[n/2] 相当)。
+/// 昇順に整列した窓の下半分 lower_ と上半分 upper_ を 2 つの multiset で管理し、
+/// balanced を保つため挿入・削除は O(log n) で済む。
+struct sliding_median {
+    std::multiset<double> lower_;  ///< 窓の下半分
+    std::multiset<double> upper_;  ///< 窓の上半分 (median は *upper_.begin())
+
+    std::size_t size() const noexcept { return lower_.size() + upper_.size(); }
+
+    void insert(double v) {
+        if (lower_.empty() || v <= *lower_.rbegin()) {
+            lower_.insert(v);
+        } else {
+            upper_.insert(v);
+        }
+        rebalance();
+    }
+
+    void erase(double v) {
+        auto it = lower_.find(v);
+        if (it != lower_.end()) {
+            lower_.erase(it);
+        } else {
+            auto uit = upper_.find(v);
+            if (uit != upper_.end()) upper_.erase(uit);
+        }
+        rebalance();
+    }
+
+    /// @brief 中央値 (upper_ の最小値)。空なら NaN。
+    double median() const noexcept {
+        if (upper_.empty()) return lower_.empty() ? std::numeric_limits<double>::quiet_NaN()
+                                                  : *lower_.rbegin();
+        return *upper_.begin();
+    }
+
+private:
+    void rebalance() {
+        const std::size_t n = size();
+        const std::size_t tgt = n / 2;  // lower_ は n/2 個
+        while (lower_.size() > tgt) {
+            auto it = --lower_.end();
+            upper_.insert(*it);
+            lower_.erase(it);
+        }
+        while (lower_.size() < tgt) {
+            auto it = upper_.begin();
+            lower_.insert(*it);
+            upper_.erase(it);
+        }
+    }
+};
 
 /**
  * @brief 変化点検出の解析器本体。
@@ -134,8 +216,9 @@ private:
     double su_ = 0.0;                   ///< shift 検知用 CUSUM (上方向)
     double sd_ = 0.0;                   ///< shift 検知用 CUSUM (下方向)
 
-    std::deque<std::pair<double, double>> pts_;  ///< 回帰窓 (x, v)
-    std::deque<double> res_;                     ///< 残差 (v - ema) の窓
+    ring_buffer<std::pair<double, double>, C.window> pts_;  ///< 回帰窓 (x, v)
+    ring_buffer<double, C.window> res_;                  ///< 残差 (v - ema) の窓
+sliding_median res_med_;                             ///< 残差のスライディングメディアン
     double sx_ = 0.0, sy_ = 0.0, sxx_ = 0.0, sxy_ = 0.0;  ///< 回帰部分和
     double mad_ = 0.0;                               ///< MAD ノイズ尺度 (下限済み)
 
@@ -158,10 +241,9 @@ private:
         last_v_ = v;
         last_t_ = x;
 
-        // 残差と MAD ノイズ尺度の更新
+        // 残差 (v - ema) の更新と MAD ノイズ尺度の更新
         const double d = std::isnan(prev) ? 0.0 : v - prev;
-        res_.push_back(d);
-        if (res_.size() > C.window) res_.pop_front();
+        add_residual(d);
         mad_ = std::max(1e-12, residual_mad());  // 0 除算回避の下限
 
         const double ds = d / mad_;  // MAD 正規化
@@ -191,12 +273,7 @@ private:
         }
 
         // 回帰窓の O(1) 差分更新 (窓幅超過で最古点を押し出す)
-        pts_.push_back({x, v});
-        sx_ += x;
-        sy_ += v;
-        sxx_ += x * x;
-        sxy_ += x * v;
-        if (pts_.size() > C.window) {
+        if (pts_.size() == C.window) {
             const auto [ox, ov] = pts_.front();
             pts_.pop_front();
             sx_ -= ox;
@@ -204,6 +281,11 @@ private:
             sxx_ -= ox * ox;
             sxy_ -= ox * ov;
         }
+        pts_.push_back({x, v});
+        sx_ += x;
+        sy_ += v;
+        sxx_ += x * x;
+        sxy_ += x * v;
 
         // 傾向分類が rising / falling に変わったらトレンドイベント
         const trend_t t = trend();
@@ -219,15 +301,29 @@ private:
 
     /**
      * @brief 残差窓から MAD = 1.4826 * median(|r - median(r)|) を求める。
+     * @details 内側 median はスライディングメディアンで O(1)、外側 median は
+     *          nth_element 1 回 (O(W))。動的確保なし。
      */
     double residual_mad() const {
-        if (res_.empty()) return 0.0;
-        std::vector<double> c(res_.begin(), res_.end());
-        std::sort(c.begin(), c.end());
-        const double med = c[c.size() / 2];
-        for (double& r : c) r = std::abs(r - med);
-        std::sort(c.begin(), c.end());
-        return 1.4826 * c[c.size() / 2];
+        const std::size_t n = res_.size();
+        if (n == 0) return 0.0;
+        const double med = res_med_.median();
+        std::array<double, C.window> c{};
+        for (std::size_t i = 0; i < n; ++i) c[i] = std::abs(res_.at(i) - med);
+        std::nth_element(c.begin(), c.begin() + n / 2, c.begin() + n);
+        return 1.4826 * c[n / 2];
+    }
+
+    /**
+     * @brief 残差 1 点を窓とメディアン構造の両方へ追加する。
+     */
+    void add_residual(double d) {
+        if (res_.size() == C.window) {
+            res_med_.erase(res_.front());
+            res_.pop_front();
+        }
+        res_.push_back(d);
+        res_med_.insert(d);
     }
 
     /**
