@@ -1,4 +1,4 @@
-foreach(ex sensor bandwidth)
+foreach(ex sensor bandwidth demo)
     add_executable(example_${ex} ${ex}.cpp)
     target_link_libraries(example_${ex} PRIVATE keikoupp::keikoupp)
     target_compile_features(example_${ex} PRIVATE cxx_std_23)
