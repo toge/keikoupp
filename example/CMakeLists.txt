@@ -1,2 +1,6 @@
-add_executable(keikoupp_example example_main.cpp)
-target_link_libraries(keikoupp_example PRIVATE keikoupp::keikoupp)
+foreach(ex sensor bandwidth)
+    add_executable(example_${ex} ${ex}.cpp)
+    target_link_libraries(example_${ex} PRIVATE keikoupp::keikoupp)
+    target_compile_features(example_${ex} PRIVATE cxx_std_23)
+    add_test(NAME example_${ex} COMMAND example_${ex})
+endforeach()

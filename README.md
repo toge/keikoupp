@@ -12,7 +12,7 @@
 ## 使い方
 
 ```cpp
-#include <keikoupp/analyzer.hpp>   // config.hpp / event.hpp も取り込まれる
+#include <keikoupp/keikoupp.hpp>   // 傘ヘッダ。config.hpp / event.hpp / analyzer.hpp を取り込む
 ```
 
 `keikoupp::analyzer<M, C>` を、時間モード `M` と `keikoupp::Config{...}` の組み合わせで宣言する。
@@ -26,7 +26,7 @@
 
 ```cpp
 #include <cstdio>
-#include <keikoupp/analyzer.hpp>
+#include <keikoupp/keikoupp.hpp>
 
 int main() {
     using keikoupp::TimeMode;
@@ -51,7 +51,7 @@ int main() {
 
 ```cpp
 #include <cstdio>
-#include <keikoupp/analyzer.hpp>
+#include <keikoupp/keikoupp.hpp>
 
 int main() {
     using keikoupp::TimeMode;
