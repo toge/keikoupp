@@ -6,6 +6,7 @@ namespace keikoupp {
 /**
  * @brief 時間の扱い方。サンプルが等間隔か実時間を持つか。
  */
+// NOLINTNEXTLINE(readability-identifier-naming) — design doc が定めた公開 API 名 (TimeMode::fixed/realtime)
 enum class TimeMode { fixed, realtime };
 
 /**

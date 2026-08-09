@@ -13,10 +13,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
+
       - name: Install vcpkg
         run: |
-          git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
-          ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            git -C ~/vcpkg checkout ea1a7396b05637a53bf23c078647ecc0edee4b80
+            ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          fi
 
       - name: Build
         run: |
