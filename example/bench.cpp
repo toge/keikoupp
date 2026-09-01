@@ -34,13 +34,13 @@ static std::vector<double> make_series(std::size_t n) {
 template <std::size_t W>
 static double bench_window(const std::vector<double>& s, const char* name) {
     static constexpr auto C = keikoupp::Config{0.2, 2.0, 8.0, 2.0, 6.0, W, 3};
-    keikoupp::analyzer<keikoupp::TimeMode::fixed, C> a;
     volatile std::size_t nevt = 0;  // イベント集計 (最適化防止)
     volatile double nema = 0.0;
-    a.on_event([&](keikoupp::event, double e, double v) {
+    auto cb = [&](keikoupp::event, double e, double v) {
         nevt += 1;
         nema += e + v;
-    });
+    };
+    keikoupp::analyzer<keikoupp::TimeMode::fixed, C, decltype(cb)> a{cb};
 
     const auto t0 = std::chrono::steady_clock::now();
     for (double v : s) a.push(v);

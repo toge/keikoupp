@@ -45,9 +45,9 @@ static double lcg01() {
 
 template <keikoupp::Config C>
 static std::vector<event> run_series(const std::vector<double>& seq) {
-    keikoupp::analyzer<TimeMode::fixed, C> a;
     std::vector<event> evs;
-    a.on_event([&](event e, double, double) { evs.push_back(e); });
+    auto cb = [&](event e, double, double) { evs.push_back(e); };
+    keikoupp::analyzer<TimeMode::fixed, C, decltype(cb)> a{cb};
     for (double v : seq) a.push(v);
     return evs;
 }

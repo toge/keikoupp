@@ -6,8 +6,8 @@
 
 - EMA 平滑化と、MAD 正規化した残差を使った CUSUM 検知により、スパイクと水準シフトを検出する。
 - 回帰窓の傾きと MAD の比較によるトレンド分類（上昇 / 横ばい / 下降）を行う。
-- `analyzer<TimeMode, Config>` の 2 引数テンプレートで、パラメータはすべてコンパイル時に固定される。
-- ライブラリ本体は依存ゼロ。Catch2 はテストとサンプルでのみ使用（vcpkg）。
+- `analyzer<TimeMode, Config, Callback>` の 3 引数テンプレートで、パラメータとコールバックはすべてコンパイル時に固定される。
+- ライブラリ本体は依存ゼロ。freestanding 対応（動的確保・例外なし、標準ヘッダは `<cstddef>` `<cstring>` `<limits>` `<utility>` のみ）。Catch2 はテストとサンプルでのみ使用（vcpkg）。
 
 ## 使い方
 
@@ -15,7 +15,7 @@
 #include <keikoupp/keikoupp.hpp>   // 傘ヘッダ。config.hpp / event.hpp / analyzer.hpp を取り込む
 ```
 
-`keikoupp::analyzer<M, C>` を、時間モード `M` と `keikoupp::Config{...}` の組み合わせで宣言する。
+`keikoupp::analyzer<M, C, Callback>` を、時間モード `M`、`keikoupp::Config{...}`、コールバック型の組み合わせで宣言する（コールバック不要なら第 3 引数は省略可）。
 
 - `TimeMode::fixed`: サンプル番号を x 軸とする等間隔データ向け。`push(double v)` と `next()` を使用。
 - `TimeMode::realtime`: 実時刻を x 軸とするデータ向け。`push(double t, double v)` と `forecast(t)` を使用。
@@ -31,11 +31,11 @@
 int main() {
     using keikoupp::TimeMode;
     static constexpr auto sensor_cfg = keikoupp::Config{0.3, 0.5, 3.0, 0.3, 2.0, 60, 20};
-    keikoupp::analyzer<TimeMode::fixed, sensor_cfg> temp;
-    temp.on_event([](keikoupp::event e, const double ema, const double v) {
+    auto cb = [](keikoupp::event e, const double ema, const double v) {
         std::printf("event=%d ema=%.2f v=%.2f\n",
                     static_cast<int>(e), ema, v);
-    });
+    };
+    keikoupp::analyzer<TimeMode::fixed, sensor_cfg, decltype(cb)> temp{cb};
     for (int i = 0; i < 100; ++i)
         temp.push(22.0);            // 安定状態
     temp.push(45.0);                // 異常値（1点）
@@ -56,11 +56,11 @@ int main() {
 int main() {
     using keikoupp::TimeMode;
     static constexpr auto bw_cfg = keikoupp::Config{0.1, 0.01, 0.05, 0.01, 0.05, 120, 2};
-    keikoupp::analyzer<TimeMode::realtime, bw_cfg> bw;
-    bw.on_event([](keikoupp::event e, const double ema, const double v) {
+    auto cb = [](keikoupp::event e, const double ema, const double v) {
         std::printf("t+ event=%d ema=%.0f v=%.0f\n",
                     static_cast<int>(e), ema, v);
-    });
+    };
+    keikoupp::analyzer<TimeMode::realtime, bw_cfg, decltype(cb)> bw{cb};
     double t = 1'700'000'000.0;
     for (int i = 0; i < 120; ++i, t += 60.0)  // 60秒ごとの測定
         bw.push(t, 950e6 - 1e6 * i);          // 1Gbps → 約120Mbps へ漸減
@@ -76,8 +76,11 @@ int main() {
 
 ### イベントコールバック
 
-`on_event(F&& f)` で登録した関数に、検知のたびに `(event e, double ema, double v)` が渡される。
-イベントは `push` の内部で同期発火する。
+コールバックは `analyzer<M, C, Callback>` の第 3 テンプレート引数で指定し、検知のたびに
+`(event e, double ema, double v)` が渡される。イベントは `push` の内部で同期発火する。
+既定の `keikoupp::noop_event_callback` は何もしない。構築時に渡す（推奨）か、
+`on_event(cb)` で後から差し替えできる（型は第 3 テンプレート引数と同一であること）。
+キャプチャ付きラムダは既定構築できないため、構築時に渡す。
 
 `keikoupp::event` は次の 6 値をとる。
 
@@ -137,6 +140,19 @@ int main() {
    分類が **`rising` / `falling` に変化する遷移時のみ** `trend_up` / `trend_down` を発火する（`flat` への復帰は通知しない）。
 
 1 点の `push` 内で検知と通知が完結し、履歴は各 CUSUM と窓にのみ保持される。
+
+## FREESTANDING 対応
+
+ヘッダ本体は C++23 freestanding 環境でコンパイルできる。
+
+- 標準ヘッダは `<cstddef>` `<cstring>` `<limits>` `<utility>` のみ（freestanding 指定内）。
+- `<algorithm>` / `<array>` / `<cmath>` / `<functional>` は不使用。`isnan` / `abs` / `max` と MAD の
+  メディアン選択 (quickselect) は自前実装、コールバックは型消去せずテンプレート引数で固定。
+- 動的確保・例外送出なし（`std::function` を使わない）。
+
+CMake では `-DENABLE_FREESTANDING=ON` で `KEIKOUPP_FREESTANDING` が定義され、
+`-ffreestanding -fno-exceptions -fno-rtti -nostdlib++`（libstdc++ リンクなし）で
+ビルド・実行する検証テスト `freestanding_check` が ctest に追加される。
 
 ## ビルド
 

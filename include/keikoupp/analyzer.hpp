@@ -1,11 +1,9 @@
 #pragma once
 
-#include <algorithm>
-#include <array>
-#include <cmath>
+// freestanding 対応: <algorithm> / <array> / <cmath> / <functional> は
+// C++23 freestanding 指定外のため使わない (std::function は動的確保を伴う)。
 #include <cstddef>
 #include <cstring>
-#include <functional>
 #include <limits>
 #include <utility>
 
@@ -14,11 +12,66 @@
 
 namespace keikoupp {
 
+namespace detail {
+
+/// @brief double の絶対値 (<cmath> は freestanding 指定外のため自前実装)。
+constexpr double fabs_d(double x) noexcept { return x < 0.0 ? -x : x; }
+
+/// @brief double の max (<algorithm> は freestanding 指定外のため自前実装)。
+constexpr double max_d(double a, double b) noexcept { return a < b ? b : a; }
+
+/// @brief NaN 判定 (<cmath> の std::isnan 代替。IEEE 754 では NaN だけが x != x)。
+constexpr bool isnan_d(double x) noexcept { return x != x; }
+
+/// @brief std::array の最小代替 (<array> は C++23 freestanding 指定外のため)。
+template <typename T, std::size_t N>
+struct array {
+    T buf_[N]{};
+    constexpr T& operator[](std::size_t i) noexcept { return buf_[i]; }
+    constexpr T const& operator[](std::size_t i) const noexcept { return buf_[i]; }
+};
+
+/// @brief c[0..n-1] から k 番目に小さい値を選ぶ (quickselect, Hoare 分割)。
+/// <algorithm> の nth_element は freestanding 指定外のため自前実装。平均 O(W)。
+/// 残差の定常時 (すべて同値) でも Hoare 分割により 1 回の分割で打ち切りとなる。
+inline double select_kth(double* c, std::size_t n, std::size_t k) noexcept {
+    std::ptrdiff_t lo = 0;
+    std::ptrdiff_t hi = static_cast<std::ptrdiff_t>(n) - 1;
+    while (lo < hi) {
+        const double p = c[(lo + hi) / 2];
+        std::ptrdiff_t i = lo, j = hi;
+        while (i <= j) {
+            while (c[i] < p) ++i;
+            while (c[j] > p) --j;
+            if (i <= j) {
+                const double t = c[i];
+                c[i++] = c[j];
+                c[j--] = t;
+            }
+        }
+        if (k <= static_cast<std::size_t>(j)) {
+            hi = j;
+        } else if (k >= static_cast<std::size_t>(i)) {
+            lo = i;
+        } else {
+            break;  // j < k < i: 区間 [j+1, i-1] はすべて p と同値 → c[k] == p
+        }
+    }
+    return c[k];
+}
+
+}  // namespace detail
+
+/// @brief コールバック未指定時に使う、何もしないイベントハンドラ。
+struct noop_event_callback {
+    void operator()(event, double, double) const noexcept {}
+};
+
 /// @brief 固定長リングバッファ。満杯時の push_back は最古要素を上書きする。
 // ponytail: 分岐で剰余を代替 (N は定数のため %N は magic mul に展開されるが、分岐の方が 1.7-10% 速い)
 template <typename T, std::size_t N>
 struct ring_buffer {
-    std::array<T, N> buf_{};
+    detail::array<T, N> buf_{};
     std::size_t head_ = 0;
     std::size_t size_ = 0;
 
@@ -59,7 +112,7 @@ struct ring_buffer {
 // ponytail: 旧 sliding_median (multiset 2分割) は確保コストが高く、W=1000 でも 5% 遅い
 template <std::size_t N>
 struct sorted_median {
-    std::array<double, N> buf_{};
+    detail::array<double, N> buf_{};
     std::size_t sz_ = 0;
 
     std::size_t size() const noexcept { return sz_; }
@@ -109,8 +162,11 @@ struct sorted_median {
  *
  * @tparam M 時系列の時間モード (TimeMode)。
  * @tparam C コンパイル時固定パラメータ (Config)。
+ * @tparam Callback イベントハンドラの型 (シグネチャ void(event, double, double))。
+ *          freestanding 対応のため型消去 (std::function・動的確保) はせず、
+ *          テンプレート引数で型を固定する。既定は何もしない noop_event_callback。
  */
-template <TimeMode M, Config C>
+template <TimeMode M, Config C, typename Callback = noop_event_callback>
 struct analyzer {
     /// @brief トレンド分類。
     enum class trend { rising, flat, falling, unknown };
@@ -121,7 +177,14 @@ private:
 public:
 
     /**
+     * @brief コールバックを渡して構築 (推奨)。
+     * @param f 呼び出し先。引数は (イベント種別, その時点の ema, 直近の値)。
+     */
+    explicit analyzer(Callback f) : cb_(std::move(f)) {}
+
+    /**
      * @brief 既定構築。ema は未初期化 (NaN)、CUSUM は 0 から開始。
+     * @note Callback が既定構築できない場合 (キャプチャ付きラムダ等) は使用不可。
      */
     analyzer() = default;
 
@@ -163,7 +226,7 @@ public:
     trend trend() const noexcept {
         if (pts_.size() < C.window) return trend_t::unknown;
         const double s = slope();
-        if (std::isnan(s)) return trend_t::unknown;
+        if (detail::isnan_d(s)) return trend_t::unknown;
         if (s > mad_) return trend_t::rising;
         if (s < -mad_) return trend_t::falling;
         return trend_t::flat;
@@ -198,12 +261,13 @@ public:
     }
 
     /**
-     * @brief イベント検知コールバックを登録する。
+     * @brief イベント検知コールバックを差し替える。
      * @param f 呼び出し先。引数は (イベント種別, その時点の ema, 直近の値)。
+     * @note 型はテンプレート引数 Callback と同一である必要がある
+     *          (freestanding 対応のため型消去を行わない)。
      */
-    template <typename F>
-    void on_event(F&& f) {
-        cb_ = std::forward<F>(f);
+    void on_event(Callback f) {
+        cb_ = std::move(f);
     }
 
 private:
@@ -226,7 +290,7 @@ private:
     double mad_ = 0.0;                               ///< MAD ノイズ尺度 (下限済み)
 
     trend_t last_trend_ = trend_t::unknown;  ///< 直前の傾向分類 (変化検知用)
-    std::function<void(event, double, double)> cb_;  ///< イベントコールバック
+    Callback cb_{};  ///< イベントコールバック (テンプレート引数で型固定)
 
     /**
      * @brief push 共通処理。x は固定モードでは連番、実時間モードでは時刻。
@@ -236,7 +300,7 @@ private:
      */
     void push_impl(double x, double v) {
         const double prev = ema_;
-        if (std::isnan(prev)) {
+        if (detail::isnan_d(prev)) {
             ema_ = v;  // 第 1 点でシード
         } else {
             ema_ = C.alpha * v + (1.0 - C.alpha) * prev;
@@ -245,14 +309,14 @@ private:
         last_t_ = x;
 
         // 残差 (v - ema) の更新と MAD ノイズ尺度の更新
-        const double d = std::isnan(prev) ? 0.0 : v - prev;
+        const double d = detail::isnan_d(prev) ? 0.0 : v - prev;
         add_residual(d);
-        mad_ = std::max(1e-12, residual_mad());  // 0 除算回避の下限
+        mad_ = detail::max_d(1e-12, residual_mad());  // 0 除算回避の下限
 
         const double ds = d / mad_;  // MAD 正規化
 
         // spike 検知: S = max(0, S + (|d| - k)) | S > h の連続超過で発火し S を 0 に
-        s_spike_ = std::max(0.0, s_spike_ + std::abs(ds) - C.spike_k);
+        s_spike_ = detail::max_d(0.0, s_spike_ + detail::fabs_d(ds) - C.spike_k);
         if (s_spike_ > C.spike_h) {
             if (++spike_above_ >= C.spike_confirm) {
                 fire(event::spike);
@@ -264,12 +328,12 @@ private:
         }
 
         // shift 検知: 上下方向を別々の CUSUM で持ち、超過で発火 & リセット
-        su_ = std::max(0.0, su_ + ds - C.shift_k);
+        su_ = detail::max_d(0.0, su_ + ds - C.shift_k);
         if (su_ > C.shift_h) {
             fire(event::shift_up);
             su_ = 0.0;
         }
-        sd_ = std::max(0.0, sd_ - ds - C.shift_k);
+        sd_ = detail::max_d(0.0, sd_ - ds - C.shift_k);
         if (sd_ > C.shift_h) {
             fire(event::shift_down);
             sd_ = 0.0;
@@ -305,16 +369,18 @@ private:
     /**
      * @brief 残差窓から MAD = 1.4826 * median(|r - median(r)|) を求める。
      * @details 内側 median はスライディングメディアンで O(1)、外側 median は
-     *          nth_element 1 回 (O(W))。動的確保なし。
+     *          quickselect 1 回 (平均 O(W)。Hoare 分割のため定常時の同値偏りにも強い)。
+     *          動的確保なし。旧実装 (<algorithm> nth_element) と同じ
+     *          upper median (c[n/2]) を返す。
      */
+    // ponytail: <algorithm> nth_element は freestanding 指定外 → detail::select_kth
     double residual_mad() const {
         const std::size_t n = res_.size();
         if (n == 0) return 0.0;
         const double med = res_med_.median();
-        std::array<double, C.window> c{};
-        for (std::size_t i = 0; i < n; ++i) c[i] = std::abs(res_.at(i) - med);
-        std::nth_element(c.begin(), c.begin() + n / 2, c.begin() + n);
-        return 1.4826 * c[n / 2];
+        detail::array<double, C.window> c{};
+        for (std::size_t i = 0; i < n; ++i) c[i] = detail::fabs_d(res_.at(i) - med);
+        return 1.4826 * detail::select_kth(c.buf_, n, n / 2);
     }
 
     /**
@@ -330,10 +396,10 @@ private:
     }
 
     /**
-     * @brief コールバックが登録されていれば (イベント, ema, 直近値) を通知。
+     * @brief (イベント, ema, 直近値) をコールバックへ通知 (既定は noop)。
      */
     void fire(event e) {
-        if (cb_) cb_(e, ema_, last_v_);
+        cb_(e, ema_, last_v_);
     }
 };
 

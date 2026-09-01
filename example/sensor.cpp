@@ -4,10 +4,10 @@
 int main() {
     using keikoupp::TimeMode;
     static constexpr auto sensor_cfg = keikoupp::Config{0.3, 0.5, 3.0, 0.3, 2.0, 60, 20};
-    keikoupp::analyzer<TimeMode::fixed, sensor_cfg> temp;
-    temp.on_event([](keikoupp::event e, double, double) {
+    auto cb = [](keikoupp::event e, double, double) {
         std::printf("event: %d\n", static_cast<int>(e));
-    });
+    };
+    keikoupp::analyzer<TimeMode::fixed, sensor_cfg, decltype(cb)> temp{cb};
     for (int i = 0; i < 100; ++i)
         temp.push(22.0);            // 安定状態
     temp.push(45.0);                 // 異常値 (1点)
