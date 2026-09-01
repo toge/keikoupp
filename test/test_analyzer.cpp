@@ -73,6 +73,10 @@ TEST_CASE("spike does not fire on a single isolated outlier") {
     REQUIRE(count(run_series<SPIKE_CFG>(seq), keikoupp::event::spike) == 0);
 }
 
+TEST_CASE("pure noise emits no events") {
+    REQUIRE(run_series<SPIKE_CFG>(alt_noise(300)).empty());
+}
+
 TEST_CASE("spike fires on sustained outlier and re-arms after reset") {
     // 50/10 交互の持続外れを 2 回 (間は通常ノイズ) → 各ストレッチで 1 回ずつ発火
     std::vector<double> seq = alt_noise(40);
@@ -116,6 +120,66 @@ TEST_CASE("realtime mode: push(t, v) EMA, slope, forecast") {
     REQUIRE(a.ema() == Approx(10.0).margin(1e-9));
     REQUIRE(a.slope() == Approx(0.0).margin(1e-9));
     REQUIRE(a.forecast(20.0) == Approx(10.0).margin(1e-9));
+}
+
+TEST_CASE("ema is NaN before first push") {
+    keikoupp::analyzer<TimeMode::fixed, CFG> fa;
+    REQUIRE(std::isnan(fa.ema()));
+    keikoupp::analyzer<TimeMode::realtime, CFG> ra;
+    REQUIRE(std::isnan(ra.ema()));
+    fa.push(5.0);
+    REQUIRE(!std::isnan(fa.ema()));
+    ra.push(0.0, 5.0);
+    REQUIRE(!std::isnan(ra.ema()));
+}
+
+TEST_CASE("next predicts ema plus slope") {
+    // 定常系列: slope 0 → next == ema
+    keikoupp::analyzer<TimeMode::fixed, CFG> a;
+    for (int i = 0; i < 100; ++i) a.push(10.0);
+    REQUIRE(a.next() == Approx(10.0).margin(1e-9));
+    REQUIRE(a.next() == Approx(a.ema() + a.slope()).margin(1e-12));
+    // 傾き 1 のランプ: slope≈1 → next - ema ≈ 1
+    keikoupp::analyzer<TimeMode::fixed, CFG> b;
+    for (int i = 0; i < 100; ++i) b.push(static_cast<double>(i));
+    REQUIRE(b.slope() == Approx(1.0).margin(0.05));
+    REQUIRE(b.next() - b.ema() == Approx(1.0).margin(0.05));
+}
+
+TEST_CASE("spike getter reflects detection progress") {
+    keikoupp::analyzer<TimeMode::fixed, SPIKE_CFG> a;
+    REQUIRE(!a.spike());
+    for (double v : alt_noise(40)) {
+        a.push(v);
+        REQUIRE(!a.spike());
+    }
+    bool seen = false;
+    for (int i = 0; i < 10; ++i) {
+        a.push(i % 2 ? 50.0 : 10.0);
+        if (a.spike()) seen = true;
+    }
+    REQUIRE(seen);
+    for (double v : alt_noise(20)) a.push(v);
+    REQUIRE(!a.spike());
+}
+
+TEST_CASE("callback receives current ema and last value") {
+    struct rec { double ema; double v; };
+    std::vector<rec> calls;
+    auto cb = [&](keikoupp::event e, double ema, double v) {
+        if (e == keikoupp::event::spike) calls.push_back({ema, v});
+    };
+    keikoupp::analyzer<TimeMode::fixed, SPIKE_CFG, decltype(cb)> a{cb};
+    for (double v : alt_noise(40)) a.push(v);
+    for (int i = 0; i < 10; ++i) a.push(i % 2 ? 50.0 : 10.0);
+    for (double v : alt_noise(20)) a.push(v);
+    REQUIRE(!calls.empty());
+    for (auto [ema, v] : calls) {
+        REQUIRE(std::isfinite(ema));
+        REQUIRE(ema >= 8.0);
+        REQUIRE(ema <= 52.0);
+        REQUIRE((v == 50.0 || v == 10.0));
+    }
 }
 
 // モード誤用のコンパイル時拒否の静的検証用コンセプト
