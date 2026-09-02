@@ -23,6 +23,7 @@ target_compile_features(keikoupp INTERFACE cxx_std_23)
 
 if(ENABLE_WASI_MINIMAL)
     target_compile_definitions(keikoupp INTERFACE KEIKOUPP_WASI_MINIMAL=1)
+    target_compile_options(keikoupp INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
 endif()
 
 target_include_directories(keikoupp

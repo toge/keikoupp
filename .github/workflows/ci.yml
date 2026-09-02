@@ -10,8 +10,264 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # gcc 16 : Fedora 44
+          # gcc 15 : Fedora 43
+          # gcc 14 : Fedora 41
+          - fedora_version: "44"
+            compiler: gcc
+          - fedora_version: "43"
+            compiler: gcc
+          - fedora_version: "41"
+            compiler: gcc
+
+    container: fedora:${{ matrix.fedora_version }}
+
+    env:
+      CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            dnf install -y clang cmake ninja-build git curl zip unzip tar
+          else
+            dnf install -y gcc-c++ cmake ninja-build git curl zip unzip tar
+          fi
+
+      - name: Check compiler version
+        run: |
+          $CXX --version
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            $CXX -dumpversion | grep -E "^(1[4-9]|[2-9][0-9])(\.|\$)" || { echo "ERROR: GCC 14+ required, found $($CXX -dumpversion)"; exit 1; }
+          fi
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-fedora-${{ matrix.fedora_version }}-${{ matrix.compiler }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-fedora-${{ matrix.fedora_version }}-${{ matrix.compiler }}-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Configure
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -V
+
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    container: fedora:44
+
+    env:
+      CC: gcc
+      CXX: g++
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: dnf install -y gcc-c++ cmake ninja-build git curl zip unzip tar
+
+      - name: Check GCC version
+        run: |
+          g++ --version
+          g++ -dumpversion | grep -E "^(1[4-9]|[2-9][0-9])(\.|\$)" || { echo "ERROR: GCC 14+ required, found $(g++ -dumpversion)"; exit 1; }
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build-arm64/vcpkg_installed
+          key: ${{ runner.os }}-arm64-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-arm64-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Configure
+        run: |
+          cmake -B build-arm64 -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build
+        run: cmake --build build-arm64
+
+      - name: Test
+        run: ctest --test-dir build-arm64 -V
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    container: fedora:44
+
+    env:
+      CC: gcc
+      CXX: g++
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: dnf install -y gcc-c++ libasan libubsan cmake ninja-build git curl zip unzip tar
+
+      - name: Check GCC version
+        run: |
+          g++ --version
+          g++ -dumpversion | grep -E "^(1[4-9]|[2-9][0-9])(\.|\$)" || { echo "ERROR: GCC 14+ required, found $(g++ -dumpversion)"; exit 1; }
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-fedora-44-sanitizer-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-fedora-44-sanitizer-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Configure with sanitizers
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -V
+
+  windows-msvc:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg
+            build\vcpkg_installed
+          key: ${{ runner.os }}-msvc-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-msvc-vcpkg-
+
+      - name: Setup vcpkg
+        run: |
+          if not exist C:\vcpkg (
+            git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+            call C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          )
+        shell: cmd
+
+      - name: Configure
+        run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build -V -C Release
+
+  linux-clang:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # clang 22 : Fedora 44
+        # clang 21 : Fedora 43
+        # clang 20 : Fedora 42
+        # clang 19 : Fedora 41
+        fedora_version: ["44", "43", "42", "41"]
+
+    container: fedora:${{ matrix.fedora_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: dnf install -y clang cmake ninja-build git curl zip unzip tar
+
+      - name: Check Clang version
+        run: clang++ --version
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-clang-${{ matrix.fedora_version }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-clang-${{ matrix.fedora_version }}-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Configure
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -V
+
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: brew install cmake ninja
+
+      - name: Check compiler version
+        run: clang++ --version
 
       - name: Restore vcpkg cache
         uses: actions/cache@v4
@@ -27,19 +283,64 @@ jobs:
         run: |
           if [ ! -d ~/vcpkg ]; then
             git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
-            git -C ~/vcpkg checkout ea1a7396b05637a53bf23c078647ecc0edee4b80
-            ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+            ~/vcpkg/bootstrap-vcpkg.sh
           fi
+
+      - name: Configure
+        run: cmake -B build -S . -G Ninja -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -V
+
+  emscripten:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install emsdk
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git /opt/emsdk
+          /opt/emsdk/emsdk install latest
+          /opt/emsdk/emsdk activate latest
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-emscripten-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-emscripten-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Configure
+        run: |
+          source /opt/emsdk/emsdk_env.sh
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET=wasm32-emscripten \
+            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake
 
       - name: Build
         run: |
-          export VCPKG_ROOT=$HOME/vcpkg
-          bash build.sh
+          source /opt/emsdk/emsdk_env.sh
+          cmake --build build
 
       - name: Test
         run: |
-          export VCPKG_ROOT=$HOME/vcpkg
-          bash test.sh
+          source /opt/emsdk/emsdk_env.sh
+          ctest --test-dir build -V
 
   linux-wasi-minimal:
     runs-on: ubuntu-latest
@@ -60,10 +361,8 @@ jobs:
       - name: Install wasi-sdk
         run: |
           if [ ! -d /opt/wasi-sdk/bin/clang ]; then
-            curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz \
-              -o /tmp/wasi-sdk.tar.gz
-            mkdir -p /opt/wasi-sdk
-            tar -xzf /tmp/wasi-sdk.tar.gz -C /opt/wasi-sdk --strip-components=1
+            curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz -o /tmp/wasi-sdk.tar.gz
+            mkdir -p /opt/wasi-sdk && tar -xzf /tmp/wasi-sdk.tar.gz -C /opt/wasi-sdk --strip-components=1
           fi
           /opt/wasi-sdk/bin/clang --version
           /opt/wasi-sdk/bin/clang++ --version
@@ -121,3 +420,9 @@ jobs:
           int main(){return 0;}
           EOF
           file /tmp/keikoupp_hosted.o | grep -q ELF
+
+      - name: Verify no direct throw/try/catch (except KEIKOUPP_THROW)
+        run: |
+          echo "Checking that direct throw/try/catch are only via KEIKOUPP_THROW..."
+          ! grep -rn "throw std::" include/keikoupp --include="*.hpp" | grep -v "KEIKOUPP_THROW" || { echo "Found direct throw"; exit 1; }
+          echo "ok"
