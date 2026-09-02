@@ -1,7 +1,8 @@
 #pragma once
 
-// freestanding 対応: <algorithm> / <array> / <cmath> / <functional> は
-// C++23 freestanding 指定外のため使わない (std::function は動的確保を伴う)。
+// WASI minimal対応: 例外・動的確保を避けるため <algorithm> / <array> / <cmath> /
+// <functional> は使わない (std::function は動的確保を伴う)。wasip1 でも hosted ヘッダは
+// 利用可能だが、本ライブラリは最小構成でビルドできるよう自前実装を維持する。
 #include <cstddef>
 #include <cstring>
 #include <limits>
@@ -14,16 +15,16 @@ namespace keikoupp {
 
 namespace detail {
 
-/// @brief double の絶対値 (<cmath> は freestanding 指定外のため自前実装)。
+/// @brief double の絶対値 (<cmath> を避け WASI minimal でもビルドできるよう自前実装)。
 constexpr double fabs_d(double x) noexcept { return x < 0.0 ? -x : x; }
 
-/// @brief double の max (<algorithm> は freestanding 指定外のため自前実装)。
+/// @brief double の max (<algorithm> を避け WASI minimal でもビルドできるよう自前実装)。
 constexpr double max_d(double a, double b) noexcept { return a < b ? b : a; }
 
-/// @brief NaN 判定 (<cmath> の std::isnan 代替。IEEE 754 では NaN だけが x != x)。
+/// @brief NaN 判定 (std::isnan 代替。IEEE 754 では NaN だけが x != x)。
 constexpr bool isnan_d(double x) noexcept { return x != x; }
 
-/// @brief std::array の最小代替 (<array> は C++23 freestanding 指定外のため)。
+/// @brief std::array の最小代替 (WASI minimal でも動的確保なしで動作するよう自前実装)。
 template <typename T, std::size_t N>
 struct array {
     T buf_[N]{};
@@ -32,7 +33,7 @@ struct array {
 };
 
 /// @brief c[0..n-1] から k 番目に小さい値を選ぶ (quickselect, Hoare 分割)。
-/// <algorithm> の nth_element は freestanding 指定外のため自前実装。平均 O(W)。
+/// <algorithm> の nth_element を避け WASI minimal でもビルドできるよう自前実装。平均 O(W)。
 /// 残差の定常時 (すべて同値) でも Hoare 分割により 1 回の分割で打ち切りとなる。
 inline double select_kth(double* c, std::size_t n, std::size_t k) noexcept {
     std::ptrdiff_t lo = 0;
@@ -163,7 +164,7 @@ struct sorted_median {
  * @tparam M 時系列の時間モード (TimeMode)。
  * @tparam C コンパイル時固定パラメータ (Config)。
  * @tparam Callback イベントハンドラの型 (シグネチャ void(event, double, double))。
- *          freestanding 対応のため型消去 (std::function・動的確保) はせず、
+ *          WASI minimal対応のため型消去 (std::function・動的確保) はせず、
  *          テンプレート引数で型を固定する。既定は何もしない noop_event_callback。
  */
 template <TimeMode M, Config C, typename Callback = noop_event_callback>
@@ -264,7 +265,7 @@ public:
      * @brief イベント検知コールバックを差し替える。
      * @param f 呼び出し先。引数は (イベント種別, その時点の ema, 直近の値)。
      * @note 型はテンプレート引数 Callback と同一である必要がある
-     *          (freestanding 対応のため型消去を行わない)。
+     *          (WASI minimal対応のため型消去を行わない)。
      */
     void on_event(Callback f) {
         cb_ = std::move(f);
@@ -373,7 +374,7 @@ private:
      *          動的確保なし。旧実装 (<algorithm> nth_element) と同じ
      *          upper median (c[n/2]) を返す。
      */
-    // ponytail: <algorithm> nth_element は freestanding 指定外 → detail::select_kth
+    // ponytail: <algorithm> nth_element を避け WASI minimal 対応 → detail::select_kth
     double residual_mad() const {
         const std::size_t n = res_.size();
         if (n == 0) return 0.0;

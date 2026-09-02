@@ -7,7 +7,7 @@
 - EMA 平滑化と、MAD 正規化した残差を使った CUSUM 検知により、スパイクと水準シフトを検出する。
 - 回帰窓の傾きと MAD の比較によるトレンド分類（上昇 / 横ばい / 下降）を行う。
 - `analyzer<TimeMode, Config, Callback>` の 3 引数テンプレートで、パラメータとコールバックはすべてコンパイル時に固定される。
-- ライブラリ本体は依存ゼロ。freestanding 対応（動的確保・例外なし、標準ヘッダは `<cstddef>` `<cstring>` `<limits>` `<utility>` のみ）。Catch2 はテストとサンプルでのみ使用（vcpkg）。
+- ライブラリ本体は依存ゼロ。WASI minimal 対応（例外なし・動的確保なし、`<cstddef>` `<cstring>` `<limits>` `<utility>` のみで `wasm32-wasip1` + `wasi-sdk` でビルド可能）。Catch2 はテストとサンプルでのみ使用（vcpkg）。
 
 ## 使い方
 
@@ -84,45 +84,45 @@ int main() {
 
 `keikoupp::event` は次の 6 値をとる。
 
-| 値 | 意味 |
-|---|---|
-| `none` | 変化なし（既定値。コールバックでは通知されない） |
-| `spike` | スパイク（一時的な急変） |
-| `shift_up` | 水準シフト（上向き） |
-| `shift_down` | 水準シフト（下向き） |
-| `trend_up` | トレンド上昇 |
-| `trend_down` | トレンド下降 |
+| 値           | 意味                                             |
+| ------------ | ------------------------------------------------ |
+| `none`       | 変化なし（既定値。コールバックでは通知されない） |
+| `spike`      | スパイク（一時的な急変）                         |
+| `shift_up`   | 水準シフト（上向き）                             |
+| `shift_down` | 水準シフト（下向き）                             |
+| `trend_up`   | トレンド上昇                                     |
+| `trend_down` | トレンド下降                                     |
 
 ## 値の定義
 
 `keikoupp::Config` は 7 フィールドで、デフォルト値はなく利用者がすべて指定する。
 以下は各フィールドの意味と、代表的な目安値である（MAD はノイズの標準偏差に相当する尺度）。
 
-| フィールド | 型 | 意味 | 目安 |
-|---|---|---|---|
-| `alpha` | `double` | EMA 平滑化係数（`0 < alpha <= 1`）。大きいほど応答が速い | 0.01–0.3 |
-| `spike_k` | `double` | スパイク用 CUSUM の感度 k（MAD の倍数） | 0.5 |
-| `spike_h` | `double` | スパイク用 CUSUM の閾値 h | 3.0 |
-| `shift_k` | `double` | 水準シフト用 CUSUM の感度 k（MAD の倍数） | 0.3 |
-| `shift_h` | `double` | 水準シフト用 CUSUM の閾値 h | 2.0 |
-| `window` | `std::size_t` | 残差 MAD と回帰に使う窓幅（点数） | 60–120 |
-| `spike_confirm` | `std::size_t` | スパイク発火に必要な閾値超過の連続点数 | 1–3 |
+| フィールド      | 型            | 意味                                                     | 目安     |
+| --------------- | ------------- | -------------------------------------------------------- | -------- |
+| `alpha`         | `double`      | EMA 平滑化係数（`0 < alpha <= 1`）。大きいほど応答が速い | 0.01–0.3 |
+| `spike_k`       | `double`      | スパイク用 CUSUM の感度 k（MAD の倍数）                  | 0.5      |
+| `spike_h`       | `double`      | スパイク用 CUSUM の閾値 h                                | 3.0      |
+| `shift_k`       | `double`      | 水準シフト用 CUSUM の感度 k（MAD の倍数）                | 0.3      |
+| `shift_h`       | `double`      | 水準シフト用 CUSUM の閾値 h                              | 2.0      |
+| `window`        | `std::size_t` | 残差 MAD と回帰に使う窓幅（点数）                        | 60–120   |
+| `spike_confirm` | `std::size_t` | スパイク発火に必要な閾値超過の連続点数                   | 1–3      |
 
 ### 内部用の固定値（v1 では Config から変更不可）
 
-| 定数 | 値 | 意味 |
-|---|---|---|
-| MAD 係数 | `1.4826` | `MAD = 1.4826 × median(|r − median(r)|)`。ノイズ標準偏差のロバスト推定 |
-| MAD 下限 | `1e-12` | 0 除算を避けるための MAD の下限（analyzer.hpp で適用） |
-| トレンド横ばい帯 | `1.0 × MAD` | `trend()` の分岐で使う固定幅（Config にはない） |
+| 定数             | 値          | 意味                                                                   |
+| ---------------- | ----------- | ---------------------------------------------------------------------- |
+| MAD 係数         | `1.4826`    | `MAD = 1.4826 × median(|r − median(r)|)`。ノイズ標準偏差のロバスト推定 |
+| MAD 下限         | `1e-12`     | 0 除算を避けるための MAD の下限（analyzer.hpp で適用）                 |
+| トレンド横ばい帯 | `1.0 × MAD` | `trend()` の分岐で使う固定幅（Config にはない）                        |
 
 ### NaN / unknown の意味
 
-| 値 | 意味 |
-|---|---|
-| `ema()` が NaN | 1 点も投入されていない |
-| `slope()` が NaN | 窓が満ちていない、または x が全部同じで傾きが算出できない |
-| `trend()` が `unknown` | 窓が満ちていない、または slope が NaN |
+| 値                     | 意味                                                      |
+| ---------------------- | --------------------------------------------------------- |
+| `ema()` が NaN         | 1 点も投入されていない                                    |
+| `slope()` が NaN       | 窓が満ちていない、または x が全部同じで傾きが算出できない |
+| `trend()` が `unknown` | 窓が満ちていない、または slope が NaN                     |
 
 `trend` は `analyzer` の入れ子 enum で、`rising` / `flat` / `falling` / `unknown` の 4 値である。
 
@@ -141,27 +141,50 @@ int main() {
 
 1 点の `push` 内で検知と通知が完結し、履歴は各 CUSUM と窓にのみ保持される。
 
-## FREESTANDING 対応
+## WASI環境対応
 
-ヘッダ本体は C++23 freestanding 環境でコンパイルできる。
+`wasm32-wasip1`（旧 `wasm32-wasi`）環境でも、ヘッダオンリーかつ例外なしのためそのまま利用できます。
+本ライブラリの WASI 対応は `wasm32-wasip1` + `wasi-sdk` sysroot を想定して提供します（`wasm3`, `wasmedge` 等の WASI ランタイムで実行可能）。
 
-- 標準ヘッダは `<cstddef>` `<cstring>` `<limits>` `<utility>` のみ（freestanding 指定内）。
-- `<algorithm>` / `<array>` / `<cmath>` / `<functional>` は不使用。`isnan` / `abs` / `max` と MAD の
-  メディアン選択 (quickselect) は自前実装、コールバックは型消去せずテンプレート引数で固定。
-- 動的確保・例外送出なし（`std::function` を使わない）。
+`wasm32-wasip2` 環境の対応は現時点では未検証です。
 
-CMake では `-DENABLE_FREESTANDING=ON` で `KEIKOUPP_FREESTANDING` が定義され、
-`-ffreestanding -fno-exceptions -fno-rtti -nostdlib++`（libstdc++ リンクなし）で
-ビルド・実行する検証テスト `freestanding_check` が ctest に追加される。
+### 有効化方法
 
-## ビルド
+| 方法             | 手順                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| コンパイラフラグ | `-DKEIKOUPP_WASI_MINIMAL` を付与（`g++ -DKEIKOUPP_WASI_MINIMAL -I include ...`）   |
+| CMake            | `-DENABLE_WASI_MINIMAL=ON`（`CMakeLists.txt:7`、`include/keikoupp/config.hpp:17`） |
 
-C++23 が必要（requires 節を使用）。
+`wasm32-wasip1` / `wasm32-emscripten` は WASI/hosted とみなすため自動では有効にならず、WASI 上で WASI minimal サブセットを検証したい場合は明示的に `-DKEIKOUPP_WASI_MINIMAL` を付与してください。
+それ以外の `__STDC_HOSTED__ == 0` 環境でも明示的なフラグが必要です。clang での WASI ビルド例は `include/keikoupp/config.hpp` のコメントを参照してください。
+
+### 例外なしモードの挙動
+
+`KEIKOUPP_WASI_MINIMAL` 定義時、ライブラリ内の全ての例外送出は `KEIKOUPP_THROW` マクロ（`include/keikoupp/config.hpp`）経由で `std::abort()` に置き換わります。`<stdexcept>` は include されず、`-fno-exceptions` でビルドできます。現状 keikoupp 本体は例外を送出しませんが、将来の拡張と frozenchars との統一のため用意しています。
+
+### 実装上の配慮
+
+- 標準ヘッダは `<cstddef>` `<cstring>` `<limits>` `<utility>` のみ。`<algorithm>` / `<array>` / `<cmath>` / `<functional>` は不使用。`isnan` / `abs` / `max` と MAD のメディアン選択 (quickselect) は自前実装、コールバックは型消去せずテンプレート引数で固定。
+- 動的確保・例外送出なし（`std::function` を使わない）。`wasip1` + `wasi-sdk` ではそのままビルドできます。
+- CI の `linux-wasi-minimal` ジョブ（`.github/workflows/ci.yml`）は `wasi-sdk` の `wasm32-wasip1` で `ENABLE_WASI_MINIMAL=ON` の wasm 生成を、`smoke_wasi_minimal` テストは hosted で `-fno-exceptions` ビルドを検証しています。
+
+### vcpkg + cmake で wasm32-wasip1 をビルドする
 
 ```bash
-bash build.sh   # cmake 構成 + ビルド（vcpkg toolchain を使用）
-bash test.sh    # ctest --test-dir build --output-on-failure
+# wasi-sdk 34 を ~/vm/wasi-sdk または /opt/wasi-sdk に展開済みとする
+cmake -B build -S . -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=$HOME/vm/vcpkg/scripts/buildsystems/vcpkg.cmake \
+  -DVCPKG_TARGET_TRIPLET=wasm32-wasip1 \
+  -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
+  -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake \
+  -DENABLE_WASI_MINIMAL=ON
+cmake --build build
+file build/test/smoke_wasi_minimal # WebAssembly
 ```
+
+`catch2` は `signal.h` の WASI 未対応で `wasip1` ではビルド失敗するため、`ENABLE_WASI_MINIMAL=ON` 時は `all_test` をスキップし `smoke_wasi_minimal` のみをビルドします（`test/CMakeLists.txt`）。
+
+## ビルド
 
 ライブラリ本体はヘッダオンリーで依存ゼロ。Catch2（vcpkg）はテストとサンプルのみに必要。
 

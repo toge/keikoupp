@@ -9,3 +9,12 @@ endforeach()
 add_executable(bench bench.cpp)
 target_link_libraries(bench PRIVATE keikoupp::keikoupp)
 target_compile_features(bench PRIVATE cxx_std_23)
+
+# WASI minimal (wasip1) では例外を使わない bench/demo がリンクできるよう -fno-exceptions を付与
+# sensor/bandwidth は wasip1 でもそのままリンクできるが、統一して例外なしでビルドしても動作する
+if(ENABLE_WASI_MINIMAL)
+    if(NOT MSVC)
+        target_compile_options(example_demo PRIVATE -fno-exceptions)
+        target_compile_options(bench PRIVATE -fno-exceptions)
+    endif()
+endif()

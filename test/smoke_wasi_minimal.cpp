@@ -1,9 +1,8 @@
-// freestanding モード検証。Catch2 を使わず -ffreestanding -fno-exceptions -fno-rtti
-// -nostdlib++ (libstdc++ リンクなし) でビルド・実行できることを確認する。
-// ライブラリが <algorithm> / <array> / <cmath> / <functional> や動的確保に
-// 逆戻りしたらコンパイルエラーまたはリンクエラー (operator new 等) で失敗する。
-#ifndef KEIKOUPP_FREESTANDING
-#error "KEIKOUPP_FREESTANDING is not defined (build with -DENABLE_FREESTANDING=ON)"
+// WASI minimal モード検証。Catch2 を使わず -fno-exceptions でビルドできることを確認する。
+// frozenchars の WASI minimal と同様、wasip1 でコンパイルできるだけの例外抑制を検証する。
+// 本ライブラリは例外を送出しないが、KEIKOUPP_THROW 経由で将来の例外も abort に置換される。
+#ifndef KEIKOUPP_WASI_MINIMAL
+#error "KEIKOUPP_WASI_MINIMAL is not defined (build with -DENABLE_WASI_MINIMAL=ON)"
 #endif
 
 #include <cstdio>
@@ -55,6 +54,6 @@ int main() {
     for (int i = 0; i < 40; ++i) b.push(22.0 + 0.2 * i);  // 上昇トレンド
     CHECK(trend_events >= 1);
 
-    if (failed == 0) std::printf("freestanding_check: all ok\n");
+    if (failed == 0) std::printf("smoke_wasi_minimal: all ok\n");
     return failed == 0 ? 0 : 1;
 }

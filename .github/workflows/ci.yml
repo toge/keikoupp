@@ -40,3 +40,84 @@ jobs:
         run: |
           export VCPKG_ROOT=$HOME/vcpkg
           bash test.sh
+
+  linux-wasi-minimal:
+    runs-on: ubuntu-latest
+    container: fedora:44
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: dnf install -y cmake ninja-build git curl zip unzip tar python3 gcc-c++ file
+
+      - name: Cache wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: /opt/wasi-sdk
+          key: wasi-sdk-34.0
+
+      - name: Install wasi-sdk
+        run: |
+          if [ ! -d /opt/wasi-sdk/bin/clang ]; then
+            curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz \
+              -o /tmp/wasi-sdk.tar.gz
+            mkdir -p /opt/wasi-sdk
+            tar -xzf /tmp/wasi-sdk.tar.gz -C /opt/wasi-sdk --strip-components=1
+          fi
+          /opt/wasi-sdk/bin/clang --version
+          /opt/wasi-sdk/bin/clang++ --version
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-wasi-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-wasi-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Build WASI minimal with vcpkg + wasi-sdk (wasm32-wasip1)
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET=wasm32-wasip1 \
+            -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
+            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake \
+            -DENABLE_WASI_MINIMAL=ON
+          cmake --build build
+          file build/test/smoke_wasi_minimal | grep -q WebAssembly
+          # example も wasip1 でビルドできること（sensor/bandwidth はそのまま、demo/bench は -fno-exceptions で）
+          file build/example/example_sensor | grep -q WebAssembly
+          file build/example/example_bandwidth | grep -q WebAssembly
+          file build/example/example_demo | grep -q WebAssembly
+
+      - name: Verify headers compile (hosted & WASI minimal wasm)
+        run: |
+          /opt/wasi-sdk/bin/clang++ -std=c++23 -I include -DKEIKOUPP_WASI_MINIMAL=1 -c test/smoke_wasi_minimal.cpp -o /tmp/keikoupp_wasi_smoke_wasm.o
+          file /tmp/keikoupp_wasi_smoke_wasm.o | grep -q WebAssembly
+          /opt/wasi-sdk/bin/clang++ -std=c++23 -I include -c -x c++ - -o /tmp/keikoupp_wasm.o <<'EOF'
+          #include "keikoupp/keikoupp.hpp"
+          int main(){return 0;}
+          EOF
+          file /tmp/keikoupp_wasm.o | grep -q WebAssembly
+          /opt/wasi-sdk/bin/clang++ -std=c++23 -I include -DKEIKOUPP_WASI_MINIMAL=1 -c -x c++ - -o /tmp/keikoupp_wasi_flag_wasm.o <<'EOF'
+          #include "keikoupp/keikoupp.hpp"
+          int main(){return 0;}
+          EOF
+          file /tmp/keikoupp_wasi_flag_wasm.o | grep -q WebAssembly
+          # hosted でも WASI minimal フラグでビルドできること
+          g++ -std=c++23 -I include -DKEIKOUPP_WASI_MINIMAL=1 -c test/smoke_wasi_minimal.cpp -o /tmp/keikoupp_wasi_smoke_hosted.o
+          g++ -std=c++23 -I include -c -x c++ - -o /tmp/keikoupp_hosted.o <<'EOF'
+          #include "keikoupp/keikoupp.hpp"
+          int main(){return 0;}
+          EOF
+          file /tmp/keikoupp_hosted.o | grep -q ELF
