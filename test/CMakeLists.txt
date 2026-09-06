@@ -4,8 +4,8 @@ target_link_libraries(smoke PRIVATE keikoupp::keikoupp)
 target_compile_features(smoke PUBLIC cxx_std_23)
 add_test(NAME smoke COMMAND smoke)
 
-# wasip1 ターゲット時は Catch2 をスキップ（Catch2 が <signal.h> 等の WASI 未対応ヘッダに依存するため）
-if(VCPKG_TARGET_TRIPLET STREQUAL "wasm32-wasip1")
+# wasip1/wasip2 ターゲット時は Catch2 をスキップ（Catch2 が <signal.h> 等の WASI 未対応ヘッダに依存するため）
+if(VCPKG_TARGET_TRIPLET MATCHES "wasm32-wasip[12]")
   return()
 endif()
 
