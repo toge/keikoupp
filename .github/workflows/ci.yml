@@ -423,3 +423,79 @@ jobs:
           ! grep -rn "try {" include/keikoupp --include="*.hpp" || { echo "Found try"; exit 1; }
           ! grep -rn "catch (" include/keikoupp --include="*.hpp" || { echo "Found catch"; exit 1; }
           echo "ok"
+
+  linux-wasip2:
+    runs-on: ubuntu-latest
+    container: fedora:44
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: dnf install -y cmake ninja-build git curl zip unzip tar python3 gcc-c++ file
+
+      - name: Cache wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: /opt/wasi-sdk
+          key: wasi-sdk-34.0
+
+      - name: Install wasi-sdk
+        run: |
+          if [ ! -d /opt/wasi-sdk/bin/clang ]; then
+            curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz -o /tmp/wasi-sdk.tar.gz
+            mkdir -p /opt/wasi-sdk && tar -xzf /tmp/wasi-sdk.tar.gz -C /opt/wasi-sdk --strip-components=1
+          fi
+          /opt/wasi-sdk/bin/clang --version
+          /opt/wasi-sdk/bin/clang++ --version
+
+      - name: Install wasmtime
+        run: |
+          WASMTIME_VERSION=$(curl -s https://api.github.com/repos/bytecodealliance/wasmtime/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+          curl -sSL "https://github.com/bytecodealliance/wasmtime/releases/latest/download/wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz" -o /tmp/wasmtime.tar.xz
+          tar -xf /tmp/wasmtime.tar.xz -C /tmp
+          WASMTIME_DIR="/tmp/wasmtime-v${WASMTIME_VERSION}-x86_64-linux"
+          echo "${WASMTIME_DIR}" >> $GITHUB_PATH
+          "${WASMTIME_DIR}/wasmtime" --version
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-wasip2-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-wasip2-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Build wasip2 with vcpkg + wasi-sdk
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET=wasm32-wasip2 \
+            -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
+            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p2.cmake
+          cmake --build build
+          # wasip2 では smoke test のみビルドされる（Catch2 は <signal.h> 依存で wasip2 ではビルド不可）
+          file build/test/smoke | grep -q WebAssembly
+          # example も wasip2 でビルドできること
+          file build/example/example_sensor | grep -q WebAssembly
+          file build/example/example_bandwidth | grep -q WebAssembly
+          file build/example/example_demo | grep -q WebAssembly
+
+      - name: Verify headers compile (wasip2)
+        run: |
+          /opt/wasi-sdk/bin/clang++ --target=wasm32-wasip2 -std=c++23 -I include -c test/smoke.cpp -o /tmp/keikoupp_wasip2_smoke_wasm.o
+          file /tmp/keikoupp_wasip2_smoke_wasm.o | grep -q WebAssembly
+          /opt/wasi-sdk/bin/clang++ --target=wasm32-wasip2 -std=c++23 -I include -c -x c++ - -o /tmp/keikoupp_wasip2_wasm.o <<'EOF'
+          #include "keikoupp/keikoupp.hpp"
+          int main(){return 0;}
+          EOF
+          file /tmp/keikoupp_wasip2_wasm.o | grep -q WebAssembly
