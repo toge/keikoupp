@@ -7,7 +7,7 @@
 - EMA 平滑化と、MAD 正規化した残差を使った CUSUM 検知により、スパイクと水準シフトを検出する。
 - 回帰窓の傾きと MAD の比較によるトレンド分類（上昇 / 横ばい / 下降）を行う。
 - `analyzer<TimeMode, Config, Callback>` の 3 引数テンプレートで、パラメータとコールバックはすべてコンパイル時に固定される。
-- ライブラリ本体は依存ゼロ。WASI minimal 対応（例外なし・動的確保なし、`<cstddef>` `<cstring>` `<limits>` `<utility>` のみで `wasm32-wasip1` + `wasi-sdk` でビルド可能）。Catch2 はテストとサンプルでのみ使用（vcpkg）。
+- ライブラリ本体は依存ゼロ。例外なし・<fno-exceptions> 対応（`<cstddef>` `<cstring>` `<limits>` `<utility>` のみで `wasm32-wasip1` + `wasi-sdk` でビルド可能）。Catch2 はテストとサンプルでのみ使用（vcpkg）。
 
 ## 使い方
 
@@ -144,29 +144,16 @@ int main() {
 ## WASI環境対応
 
 `wasm32-wasip1`（旧 `wasm32-wasi`）環境でも、ヘッダオンリーかつ例外なしのためそのまま利用できます。
+本ライブラリは frozenchars と同様に例外を送出しない設計であり、`-fno-exceptions` でビルドできます。
 本ライブラリの WASI 対応は `wasm32-wasip1` + `wasi-sdk` sysroot を想定して提供します（`wasm3`, `wasmedge` 等の WASI ランタイムで実行可能）。
 
 `wasm32-wasip2` 環境の対応は現時点では未検証です。
-
-### 有効化方法
-
-| 方法             | 手順                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------- |
-| コンパイラフラグ | `-DKEIKOUPP_WASI_MINIMAL` を付与（`g++ -DKEIKOUPP_WASI_MINIMAL -I include ...`）   |
-| CMake            | `-DENABLE_WASI_MINIMAL=ON`（`CMakeLists.txt:7`、`include/keikoupp/config.hpp:17`） |
-
-`wasm32-wasip1` / `wasm32-emscripten` は WASI/hosted とみなすため自動では有効にならず、WASI 上で WASI minimal サブセットを検証したい場合は明示的に `-DKEIKOUPP_WASI_MINIMAL` を付与してください。
-それ以外の `__STDC_HOSTED__ == 0` 環境でも明示的なフラグが必要です。clang での WASI ビルド例は `include/keikoupp/config.hpp` のコメントを参照してください。
-
-### 例外なしモードの挙動
-
-`KEIKOUPP_WASI_MINIMAL` 定義時、ライブラリ内の全ての例外送出は `KEIKOUPP_THROW` マクロ（`include/keikoupp/config.hpp`）経由で `std::abort()` に置き換わります。`<stdexcept>` は include されず、`-fno-exceptions` でビルドできます。現状 keikoupp 本体は例外を送出しませんが、将来の拡張と frozenchars との統一のため用意しています。
 
 ### 実装上の配慮
 
 - 標準ヘッダは `<cstddef>` `<cstring>` `<limits>` `<utility>` のみ。`<algorithm>` / `<array>` / `<cmath>` / `<functional>` は不使用。`isnan` / `abs` / `max` と MAD のメディアン選択 (quickselect) は自前実装、コールバックは型消去せずテンプレート引数で固定。
 - 動的確保・例外送出なし（`std::function` を使わない）。`wasip1` + `wasi-sdk` ではそのままビルドできます。
-- CI の `linux-wasi-minimal` ジョブ（`.github/workflows/ci.yml`）は `wasi-sdk` の `wasm32-wasip1` で `ENABLE_WASI_MINIMAL=ON` の wasm 生成を、`smoke_wasi_minimal` テストは hosted で `-fno-exceptions` ビルドを検証しています。
+- wasip1 ターゲット時（`VCPKG_TARGET_TRIPLET=wasm32-wasip1`）は Catch2 をビルドせず `smoke` テストのみ検証します（Catch2 が `<signal.h>` 等の WASI 未対応ヘッダに依存するため）。
 
 ### vcpkg + cmake で wasm32-wasip1 をビルドする
 
@@ -176,13 +163,10 @@ cmake -B build -S . -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vm/vcpkg/scripts/buildsystems/vcpkg.cmake \
   -DVCPKG_TARGET_TRIPLET=wasm32-wasip1 \
   -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
-  -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake \
-  -DENABLE_WASI_MINIMAL=ON
+  -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake
 cmake --build build
-file build/test/smoke_wasi_minimal # WebAssembly
+file build/test/smoke # WebAssembly
 ```
-
-`catch2` は `signal.h` の WASI 未対応で `wasip1` ではビルド失敗するため、`ENABLE_WASI_MINIMAL=ON` 時は `all_test` をスキップし `smoke_wasi_minimal` のみをビルドします（`test/CMakeLists.txt`）。
 
 ## ビルド
 

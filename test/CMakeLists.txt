@@ -1,14 +1,11 @@
-# WASI minimal 向けスモークは常時ビルド可能（hosted 依存なし）
-add_executable(smoke_wasi_minimal smoke_wasi_minimal.cpp)
-target_link_libraries(smoke_wasi_minimal PRIVATE keikoupp::keikoupp)
-target_compile_features(smoke_wasi_minimal PUBLIC cxx_std_23)
-target_compile_definitions(smoke_wasi_minimal PRIVATE KEIKOUPP_WASI_MINIMAL=1)
-# WASI minimal の契約 (例外なしでビルド可能) を hosted でも検証する
-target_compile_options(smoke_wasi_minimal PRIVATE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-exceptions>)
-add_test(NAME smoke_wasi_minimal COMMAND smoke_wasi_minimal)
+# smoke test は常時ビルド可能（hosted 依存なし）。wasip1 では Catch2 の代わりに smoke のみ検証する。
+add_executable(smoke smoke.cpp)
+target_link_libraries(smoke PRIVATE keikoupp::keikoupp)
+target_compile_features(smoke PUBLIC cxx_std_23)
+add_test(NAME smoke COMMAND smoke)
 
-if(ENABLE_WASI_MINIMAL)
-  # WASI minimal ビルドでは hosted なテストはスキップ (Catch2 が <signal.h> 等の WASI 未対応ヘッダに依存するため)
+# wasip1 ターゲット時は Catch2 をスキップ（Catch2 が <signal.h> 等の WASI 未対応ヘッダに依存するため）
+if(VCPKG_TARGET_TRIPLET STREQUAL "wasm32-wasip1")
   return()
 endif()
 

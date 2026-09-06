@@ -342,7 +342,7 @@ jobs:
           source /opt/emsdk/emsdk_env.sh
           ctest --test-dir build -V
 
-  linux-wasi-minimal:
+  linux-wasi:
     runs-on: ubuntu-latest
     container: fedora:44
 
@@ -384,45 +384,42 @@ jobs:
             ~/vcpkg/bootstrap-vcpkg.sh
           fi
 
-      - name: Build WASI minimal with vcpkg + wasi-sdk (wasm32-wasip1)
+      - name: Build wasip1 with vcpkg + wasi-sdk
         run: |
           cmake -B build -S . -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DVCPKG_TARGET_TRIPLET=wasm32-wasip1 \
             -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
-            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake \
-            -DENABLE_WASI_MINIMAL=ON
+            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake
           cmake --build build
-          file build/test/smoke_wasi_minimal | grep -q WebAssembly
-          # example も wasip1 でビルドできること（sensor/bandwidth はそのまま、demo/bench は -fno-exceptions で）
+          # wasip1 では smoke test のみビルドされる（Catch2 は <signal.h> 依存で wasip1 ではビルド不可）
+          file build/test/smoke | grep -q WebAssembly
+          # example も wasip1 でビルドできること
           file build/example/example_sensor | grep -q WebAssembly
           file build/example/example_bandwidth | grep -q WebAssembly
           file build/example/example_demo | grep -q WebAssembly
 
-      - name: Verify headers compile (hosted & WASI minimal wasm)
+      - name: Verify headers compile (hosted & wasm)
         run: |
-          /opt/wasi-sdk/bin/clang++ -std=c++23 -I include -DKEIKOUPP_WASI_MINIMAL=1 -c test/smoke_wasi_minimal.cpp -o /tmp/keikoupp_wasi_smoke_wasm.o
+          /opt/wasi-sdk/bin/clang++ -std=c++23 -I include -c test/smoke.cpp -o /tmp/keikoupp_wasi_smoke_wasm.o
           file /tmp/keikoupp_wasi_smoke_wasm.o | grep -q WebAssembly
           /opt/wasi-sdk/bin/clang++ -std=c++23 -I include -c -x c++ - -o /tmp/keikoupp_wasm.o <<'EOF'
           #include "keikoupp/keikoupp.hpp"
           int main(){return 0;}
           EOF
           file /tmp/keikoupp_wasm.o | grep -q WebAssembly
-          /opt/wasi-sdk/bin/clang++ -std=c++23 -I include -DKEIKOUPP_WASI_MINIMAL=1 -c -x c++ - -o /tmp/keikoupp_wasi_flag_wasm.o <<'EOF'
-          #include "keikoupp/keikoupp.hpp"
-          int main(){return 0;}
-          EOF
-          file /tmp/keikoupp_wasi_flag_wasm.o | grep -q WebAssembly
-          # hosted でも WASI minimal フラグでビルドできること
-          g++ -std=c++23 -I include -DKEIKOUPP_WASI_MINIMAL=1 -c test/smoke_wasi_minimal.cpp -o /tmp/keikoupp_wasi_smoke_hosted.o
+          g++ -std=c++23 -I include -c test/smoke.cpp -o /tmp/keikoupp_smoke_hosted.o
+          file /tmp/keikoupp_smoke_hosted.o | grep -q ELF
           g++ -std=c++23 -I include -c -x c++ - -o /tmp/keikoupp_hosted.o <<'EOF'
           #include "keikoupp/keikoupp.hpp"
           int main(){return 0;}
           EOF
           file /tmp/keikoupp_hosted.o | grep -q ELF
 
-      - name: Verify no direct throw/try/catch (except KEIKOUPP_THROW)
+      - name: Verify no direct throw/try/catch
         run: |
-          echo "Checking that direct throw/try/catch are only via KEIKOUPP_THROW..."
-          ! grep -rn "throw std::" include/keikoupp --include="*.hpp" | grep -v "KEIKOUPP_THROW" || { echo "Found direct throw"; exit 1; }
+          echo "Checking that no throw/try/catch exists in library headers..."
+          ! grep -rn "throw " include/keikoupp --include="*.hpp" || { echo "Found throw"; exit 1; }
+          ! grep -rn "try {" include/keikoupp --include="*.hpp" || { echo "Found try"; exit 1; }
+          ! grep -rn "catch (" include/keikoupp --include="*.hpp" || { echo "Found catch"; exit 1; }
           echo "ok"

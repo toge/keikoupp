@@ -1,10 +1,5 @@
-// WASI minimal モード検証。Catch2 を使わず -fno-exceptions でビルドできることを確認する。
-// frozenchars の WASI minimal と同様、wasip1 でコンパイルできるだけの例外抑制を検証する。
-// 本ライブラリは例外を送出しないが、KEIKOUPP_THROW 経由で将来の例外も abort に置換される。
-#ifndef KEIKOUPP_WASI_MINIMAL
-#error "KEIKOUPP_WASI_MINIMAL is not defined (build with -DENABLE_WASI_MINIMAL=ON)"
-#endif
-
+// 例外なし・hosted 依存なしのスモークテスト。
+// wasip1 ターゲット時（Catch2 がビルド不可）の動作確認に使用する。
 #include <cstdio>
 
 #include <keikoupp/keikoupp.hpp>
@@ -54,6 +49,6 @@ int main() {
     for (int i = 0; i < 40; ++i) b.push(22.0 + 0.2 * i);  // 上昇トレンド
     CHECK(trend_events >= 1);
 
-    if (failed == 0) std::printf("smoke_wasi_minimal: all ok\n");
+    if (failed == 0) std::printf("smoke: all ok\n");
     return failed == 0 ? 0 : 1;
 }

@@ -4,7 +4,6 @@ set(KEIKOUPP_VERSION "0.1.0")
 project(keikoupp VERSION ${KEIKOUPP_VERSION} LANGUAGES CXX)
 
 option(BUILD_TEST "Enable tests" ON)
-option(ENABLE_WASI_MINIMAL "Enable WASI minimal (no exceptions) mode - wasi-sdk wasm32-wasip1 assumed" OFF)
 
 if (CMAKE_COMPILER_IS_GNUCXX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
@@ -20,11 +19,6 @@ include(GNUInstallDirs)
 add_library(keikoupp INTERFACE)
 add_library(keikoupp::keikoupp ALIAS keikoupp)
 target_compile_features(keikoupp INTERFACE cxx_std_23)
-
-if(ENABLE_WASI_MINIMAL)
-    target_compile_definitions(keikoupp INTERFACE KEIKOUPP_WASI_MINIMAL=1)
-    target_compile_options(keikoupp INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
-endif()
 
 target_include_directories(keikoupp
     INTERFACE
