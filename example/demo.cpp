@@ -2,11 +2,10 @@
 // README の使用例相当のシナリオを実行し、EMA / spike / shift / trend /
 // fixed-realtime 一致 / forecast を assert で確認する。
 // 構成と系列は test_cusum / test_regression と同値 (検証済み) を再現する。
-#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <vector>
 
 #include <keikoupp/keikoupp.hpp>
 
@@ -29,11 +28,14 @@ static void check_near(double a, double b, double tol, const char* what) {
     check(std::fabs(a - b) <= tol, what);
 }
 
+// 最大系列サイズ
+constexpr std::size_t MAX_SEQ = 128;
+constexpr std::size_t MAX_EVS = 128;
+
 // 決定論的な base±2 交互ノイズ (MAD が実スケールになり、単発外れ分離が成立)
-static std::vector<double> alt_noise(double base, int n) {
-    std::vector<double> v;
-    for (int i = 0; i < n; ++i) v.push_back(base + 2.0 * (i % 2 ? 1.0 : -1.0));
-    return v;
+static void fill_alt_noise(double base, int n, std::array<double, MAX_SEQ>& out, std::size_t& out_n) {
+    out_n = static_cast<std::size_t>(n);
+    for (int i = 0; i < n; ++i) out[i] = base + 2.0 * (i % 2 ? 1.0 : -1.0);
 }
 
 // 決定論的 LCG ノイズ (test_analyzer と同系列。shift はこちらで検証する)
@@ -44,16 +46,18 @@ static double lcg01() {
 }
 
 template <keikoupp::Config C>
-static std::vector<event> run_series(const std::vector<double>& seq) {
-    std::vector<event> evs;
-    auto cb = [&](event e, double, double) { evs.push_back(e); };
+static std::size_t run_series(const double* seq, std::size_t n, std::array<event, MAX_EVS>& evs) {
+    std::size_t evs_n = 0;
+    auto cb = [&](event e, double, double) { evs[evs_n++] = e; };
     keikoupp::analyzer<TimeMode::fixed, C, decltype(cb)> a{cb};
-    for (double v : seq) a.push(v);
-    return evs;
+    for (std::size_t i = 0; i < n; ++i) a.push(seq[i]);
+    return evs_n;
 }
 
-static std::size_t count(const std::vector<event>& evs, event want) {
-    return static_cast<std::size_t>(std::count(evs.begin(), evs.end(), want));
+static std::size_t count_events(const std::array<event, MAX_EVS>& evs, std::size_t n, event want) {
+    std::size_t c = 0;
+    for (std::size_t i = 0; i < n; ++i) if (evs[i] == want) ++c;
+    return c;
 }
 
 int main() {
@@ -69,35 +73,51 @@ int main() {
     // 2. spike: 単発外れは不発火、spike_confirm 連続超過で発火
     {
         // 単発 1 点の外れ → spike_confirm=3 に届かず不発火
-        auto seq = alt_noise(10.0, 40);
-        seq.push_back(50.0);
-        auto tail = alt_noise(10.0, 25);
-        seq.insert(seq.end(), tail.begin(), tail.end());
-        check(count(run_series<SPIKE_CFG>(seq), event::spike) == 0,
+        std::array<double, MAX_SEQ> seq;
+        std::size_t seq_n;
+        fill_alt_noise(10.0, 40, seq, seq_n);
+        seq[seq_n++] = 50.0;
+        std::array<double, MAX_SEQ> tail;
+        std::size_t tail_n;
+        fill_alt_noise(10.0, 25, tail, tail_n);
+        for (std::size_t i = 0; i < tail_n; ++i) seq[seq_n++] = tail[i];
+        std::array<event, MAX_EVS> evs;
+        auto evs_n = run_series<SPIKE_CFG>(seq.data(), seq_n, evs);
+        check(count_events(evs, evs_n, event::spike) == 0,
               "single outlier does not fire spike");
 
         // 50/10 交互の持続外れ → 発火
-        std::vector<double> seq2 = alt_noise(10.0, 40);
-        for (int i = 0; i < 10; ++i) seq2.push_back(i % 2 ? 50.0 : 10.0);
-        check(count(run_series<SPIKE_CFG>(seq2), event::spike) >= 1,
+        std::array<double, MAX_SEQ> seq2;
+        std::size_t seq2_n;
+        fill_alt_noise(10.0, 40, seq2, seq2_n);
+        for (int i = 0; i < 10; ++i) seq2[seq2_n++] = (i % 2 ? 50.0 : 10.0);
+        std::array<event, MAX_EVS> evs2;
+        auto evs2_n = run_series<SPIKE_CFG>(seq2.data(), seq2_n, evs2);
+        check(count_events(evs2, evs2_n, event::spike) >= 1,
               "sustained outlier fires spike");
     }
     // 3. shift_up / shift_down 発火
     {
         // 水準 10±4 → 33±4 (+23) を 30 点継続 (test_analyzer と同構成)
         lcg_state = 12345u;
-        std::vector<double> up;
-        for (int i = 0; i < 40; ++i) up.push_back(10.0 + 4.0 * lcg01());
-        for (int i = 0; i < 30; ++i) up.push_back(33.0 + 4.0 * lcg01());
-        check(count(run_series<SHIFT_CFG>(up), event::shift_up) >= 1,
+        std::array<double, MAX_SEQ> up;
+        std::size_t up_n = 0;
+        for (int i = 0; i < 40; ++i) up[up_n++] = 10.0 + 4.0 * lcg01();
+        for (int i = 0; i < 30; ++i) up[up_n++] = 33.0 + 4.0 * lcg01();
+        std::array<event, MAX_EVS> evs_up;
+        auto evs_up_n = run_series<SHIFT_CFG>(up.data(), up_n, evs_up);
+        check(count_events(evs_up, evs_up_n, event::shift_up) >= 1,
               "level rise fires shift_up");
 
         // 水準 10±4 → -27±4 (-37) を 30 点継続
         lcg_state = 12345u;
-        std::vector<double> down;
-        for (int i = 0; i < 40; ++i) down.push_back(10.0 + 4.0 * lcg01());
-        for (int i = 0; i < 30; ++i) down.push_back(-27.0 + 4.0 * lcg01());
-        check(count(run_series<SHIFT_CFG>(down), event::shift_down) >= 1,
+        std::array<double, MAX_SEQ> down;
+        std::size_t down_n = 0;
+        for (int i = 0; i < 40; ++i) down[down_n++] = 10.0 + 4.0 * lcg01();
+        for (int i = 0; i < 30; ++i) down[down_n++] = -27.0 + 4.0 * lcg01();
+        std::array<event, MAX_EVS> evs_down;
+        auto evs_down_n = run_series<SHIFT_CFG>(down.data(), down_n, evs_down);
+        check(count_events(evs_down, evs_down_n, event::shift_down) >= 1,
               "level fall fires shift_down");
     }
     // 4. trend rising / falling / unknown
