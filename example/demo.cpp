@@ -18,13 +18,13 @@ constexpr auto SHIFT_CFG = keikoupp::Config{0.2, 99.0, 99.0, 2.0, 6.0, 20, 3};
 constexpr auto BASE_CFG  = keikoupp::Config{0.2, 0.05, 1.0, 0.05, 1.0, 40, 2};
 
 // 各ステージを検証する。失敗は stderr に出力して EXIT_FAILURE で終了する。
-static void check(bool ok, const char* what) {
+static void check(const bool ok, const char* const what) {
     if (!ok) {
         std::fprintf(stderr, "demo FAILED: %s\n", what);
         std::exit(EXIT_FAILURE);
     }
 }
-static void check_near(double a, double b, double tol, const char* what) {
+static void check_near(const double a, const double b, const double tol, const char* const what) {
     check(std::fabs(a - b) <= tol, what);
 }
 
@@ -33,7 +33,7 @@ constexpr std::size_t MAX_SEQ = 128;
 constexpr std::size_t MAX_EVS = 128;
 
 // 決定論的な base±2 交互ノイズ (MAD が実スケールになり、単発外れ分離が成立)
-static void fill_alt_noise(double base, int n, std::array<double, MAX_SEQ>& out, std::size_t& out_n) {
+static void fill_alt_noise(const double base, const int n, std::array<double, MAX_SEQ>& out, std::size_t& out_n) {
     out_n = static_cast<std::size_t>(n);
     for (int i = 0; i < n; ++i) out[i] = base + 2.0 * (i % 2 ? 1.0 : -1.0);
 }
@@ -46,7 +46,7 @@ static double lcg01() {
 }
 
 template <keikoupp::Config C>
-static std::size_t run_series(const double* seq, std::size_t n, std::array<event, MAX_EVS>& evs) {
+static std::size_t run_series(const double* const seq, const std::size_t n, std::array<event, MAX_EVS>& evs) {
     std::size_t evs_n = 0;
     auto cb = [&](event e, double, double) { evs[evs_n++] = e; };
     keikoupp::analyzer<TimeMode::fixed, C, decltype(cb)> a{cb};
@@ -54,7 +54,7 @@ static std::size_t run_series(const double* seq, std::size_t n, std::array<event
     return evs_n;
 }
 
-static std::size_t count_events(const std::array<event, MAX_EVS>& evs, std::size_t n, event want) {
+static std::size_t count_events(const std::array<event, MAX_EVS>& evs, const std::size_t n, const event want) noexcept {
     std::size_t c = 0;
     for (std::size_t i = 0; i < n; ++i) if (evs[i] == want) ++c;
     return c;

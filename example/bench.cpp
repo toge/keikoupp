@@ -21,13 +21,13 @@ static double lcg01() {
 
 // 定常ベースに ±2 交互ノイズ + 時々スパイクを混ぜた系列 (MAD が実スケールになる)
 // 系列を格納せずに i 番目の値をその場で生成する
-static double series_value(std::size_t i) {
+static double series_value(const std::size_t i) {
     double base = (i % 512 < 16) ? 50.0 : 10.0;  // 周期的な急変
     return base + 2.0 * (i % 3 ? 1.0 : -1.0) + (lcg01() - 0.5);
 }
 
 template <std::size_t W>
-static double bench_window(std::size_t n, const char* name) {
+static double bench_window(const std::size_t n, const char* const name) {
     static constexpr auto C = keikoupp::Config{0.2, 2.0, 8.0, 2.0, 6.0, W, 3};
     volatile std::size_t nevt = 0;  // イベント集計 (最適化防止)
     volatile double nema = 0.0;

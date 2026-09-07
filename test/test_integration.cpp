@@ -18,7 +18,7 @@ constexpr auto BW_CFG = keikoupp::Config{0.1, 0.01, 0.05, 0.01, 0.05, 120, 2};
 
 TEST_CASE("sensor: stable temp then rapid jump fires spike") {
     std::vector<keikoupp::event> events;
-    auto cb = [&](keikoupp::event e, double, double) { events.push_back(e); };
+    auto cb = [&](const keikoupp::event e, const double, const double) { events.push_back(e); };
     keikoupp::analyzer<TimeMode::fixed, SENSOR_CFG, decltype(cb)> a{cb};
     for (int i = 0; i < 100; ++i) a.push(22.0);
     for (int i = 0; i < 30; ++i) a.push(34.0);  // 急上昇 (12℃)
@@ -29,7 +29,7 @@ TEST_CASE("sensor: slow drift is shift_up, not spike") {
     // 100→500 を 200 サンプルで緩やかに上昇 (傾き +2, 振幅 ±5 の交互ノイズ):
     // 1 点ずつの変化は MAD 内で spike に届かず、累積する水準変化が shift_up として出る。
     std::vector<keikoupp::event> events;
-    auto cb = [&](keikoupp::event e, double, double) { events.push_back(e); };
+    auto cb = [&](const keikoupp::event e, const double, const double) { events.push_back(e); };
     keikoupp::analyzer<TimeMode::fixed, DRIFT_CFG, decltype(cb)> a{cb};
     for (int i = 0; i < 100; ++i) a.push(100.0 + (i % 2 ? 5.0 : -5.0));
     for (int i = 0; i < 200; ++i) a.push(100.0 + 2.0 * i + (i % 2 ? 5.0 : -5.0));
@@ -39,7 +39,7 @@ TEST_CASE("sensor: slow drift is shift_up, not spike") {
 
 TEST_CASE("bandwidth: gradual degradation fires shift_down and falling trend") {
     std::vector<keikoupp::event> events;
-    auto cb = [&](keikoupp::event e, double, double) { events.push_back(e); };
+    auto cb = [&](const keikoupp::event e, const double, const double) { events.push_back(e); };
     keikoupp::analyzer<TimeMode::realtime, BW_CFG, decltype(cb)> a{cb};
     for (int i = 0; i < 120; ++i) {
         const double v = 1.0e9 - 1.0e6 * i;  // 1Gbps から毎回 1Mbps ずつ漸減

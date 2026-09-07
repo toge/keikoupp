@@ -25,7 +25,7 @@ static double lcg01() {
 }
 
 // ±2 交互ノイズ (median が d=±2 に張り付く決定論的パターン)
-static std::vector<double> alt_noise(int n) {
+static std::vector<double> alt_noise(const int n) {
     std::vector<double> v;
     for (int i = 0; i < n; ++i) v.push_back(10.0 + 2.0 * (i % 2 ? 1.0 : -1.0));
     return v;
@@ -40,7 +40,7 @@ static std::vector<keikoupp::event> run_series(const std::vector<double>& seq) {
     return evs;
 }
 
-static size_t count(const std::vector<keikoupp::event>& evs, keikoupp::event want) {
+static size_t count(const std::vector<keikoupp::event>& evs, const keikoupp::event want) noexcept {
     return static_cast<size_t>(std::count(evs.begin(), evs.end(), want));
 }
 

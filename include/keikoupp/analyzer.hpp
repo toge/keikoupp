@@ -118,7 +118,7 @@ struct sorted_median {
 
     std::size_t size() const noexcept { return sz_; }
 
-    void insert(double v) {
+    void insert(const double v) noexcept {
         std::size_t lo = 0, hi = sz_;
         while (lo < hi) {
             const std::size_t mid = (lo + hi) >> 1;
@@ -130,7 +130,7 @@ struct sorted_median {
         ++sz_;
     }
 
-    void erase(double v) {
+    void erase(const double v) noexcept {
         std::size_t lo = 0, hi = sz_;
         while (lo < hi) {
             const std::size_t mid = (lo + hi) >> 1;
@@ -194,7 +194,7 @@ public:
      * @param v 観測値。
      * @note TimeMode::realtime では宣言されない (誤用はコンパイル時拒否)。
      */
-    void push(double v) requires (M == TimeMode::fixed) {
+    void push(const double v) requires (M == TimeMode::fixed) {
         push_impl(static_cast<double>(n_++), v);
     }
 
@@ -204,7 +204,7 @@ public:
      * @param v 観測値。
      * @note TimeMode::fixed では宣言されない (誤用はコンパイル時拒否)。
      */
-    void push(double t, double v) requires (M == TimeMode::realtime) {
+    void push(const double t, const double v) requires (M == TimeMode::realtime) {
         ++n_;
         push_impl(t, v);
     }
@@ -299,7 +299,7 @@ private:
      *          更新 → 傾向変化検知、の順で処理し、検知したイベントは即座に
      *          コールバックへ通知する。
      */
-    void push_impl(double x, double v) {
+    void push_impl(const double x, const double v) {
         const double prev = ema_;
         if (detail::isnan_d(prev)) {
             ema_ = v;  // 第 1 点でシード
@@ -375,7 +375,7 @@ private:
      *          upper median (c[n/2]) を返す。
      */
     // ponytail: <algorithm> nth_element を避け WASI minimal 対応 → detail::select_kth
-    double residual_mad() const {
+    double residual_mad() const noexcept {
         const std::size_t n = res_.size();
         if (n == 0) return 0.0;
         const double med = res_med_.median();
@@ -387,7 +387,7 @@ private:
     /**
      * @brief 残差 1 点を窓とメディアン構造の両方へ追加する。
      */
-    void add_residual(double d) {
+    void add_residual(const double d) noexcept {
         if (res_.size() == C.window) {
             res_med_.erase(res_.front());
             res_.pop_front();
@@ -399,7 +399,7 @@ private:
     /**
      * @brief (イベント, ema, 直近値) をコールバックへ通知 (既定は noop)。
      */
-    void fire(event e) {
+    void fire(const event e) {
         cb_(e, ema_, last_v_);
     }
 };

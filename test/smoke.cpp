@@ -17,7 +17,7 @@ static int failed = 0;
 static int spike_count = 0;
 static int shift_count = 0;
 
-static void on_ev(keikoupp::event e, double, double) {
+static void on_ev(const keikoupp::event e, const double, const double) noexcept {
     if (e == keikoupp::event::spike) ++spike_count;
     if (e == keikoupp::event::shift_up) ++shift_count;
 }
